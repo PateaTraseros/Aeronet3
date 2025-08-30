@@ -1579,22 +1579,51 @@ function cvMetrics = validacionCruzadaAOD_OptAntiguo_v3_corrected(T, iterData, o
         w_test = nan(nTest, 1); % Capture w (optimized or fixed)
         rh_test = T_test.RH; % Get RH for test set
 
-        for i_test = 1:nTest
-            meas_i = T_test{i_test, iterData.cols_idx}'; % AOD data
-            rh_i = rh_test(i_test); % RH data
+        % Decide whether to use PARFOR based on availability and option
+        useParLoop = opciones.useParfor && ~isempty(ver('parallel'));
+        if opciones.useParfor && ~useParLoop
+            warning('Parallel Computing Toolbox not available. Using FOR loop.');
+        end
 
-            if any(isnan(meas_i)) || any(isinf(meas_i)) || isnan(rh_i)
-                 continue; % Skip bad data points in test set
+        % The iterations over i_test are independent: each uses its own AOD and
+        % RH values and writes to distinct slices of the preallocated arrays.
+        if useParLoop
+            parfor i_test = 1:nTest
+                meas_i = T_test{i_test, iterData.cols_idx}'; % AOD data
+                rh_i   = rh_test(i_test);                  % RH data
+
+                if any(isnan(meas_i)) || any(isinf(meas_i)) || isnan(rh_i)
+                    continue; % Skip bad data points in test set
+                end
+                try
+                    % Apply the same initial fitting function used in the main code
+                    [coef_tmp, tau_tmp, w_tmp] = ajusteFuncCV(meas_i, rh_i, iterData, opciones);
+                    coef_test(i_test,:) = coef_tmp;
+                    tau_test(i_test)    = tau_tmp;
+                    w_test(i_test)      = w_tmp;
+                catch ME_cv_fit
+                    fprintf('Error during CV fit (Fold %d, Test Record %d): %s\n', i, i_test, ME_cv_fit.message);
+                    % Leave results as NaN
+                end
             end
-            try
-                % Apply the same initial fitting function used in the main code
-                [coef_tmp, tau_tmp, w_tmp] = ajusteFuncCV(meas_i, rh_i, iterData, opciones);
-                coef_test(i_test,:) = coef_tmp;
-                tau_test(i_test) = tau_tmp;
-                w_test(i_test) = w_tmp;
-            catch ME_cv_fit
-                 fprintf('Error during CV fit (Fold %d, Test Record %d): %s\n', i, i_test, ME_cv_fit.message);
-                 % Leave results as NaN
+        else
+            for i_test = 1:nTest
+                meas_i = T_test{i_test, iterData.cols_idx}'; % AOD data
+                rh_i   = rh_test(i_test);                  % RH data
+
+                if any(isnan(meas_i)) || any(isinf(meas_i)) || isnan(rh_i)
+                    continue; % Skip bad data points in test set
+                end
+                try
+                    % Apply the same initial fitting function used in the main code
+                    [coef_tmp, tau_tmp, w_tmp] = ajusteFuncCV(meas_i, rh_i, iterData, opciones);
+                    coef_test(i_test,:) = coef_tmp;
+                    tau_test(i_test)    = tau_tmp;
+                    w_test(i_test)      = w_tmp;
+                catch ME_cv_fit
+                    fprintf('Error during CV fit (Fold %d, Test Record %d): %s\n', i, i_test, ME_cv_fit.message);
+                    % Leave results as NaN
+                end
             end
         end
 
