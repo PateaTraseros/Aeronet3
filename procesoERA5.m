@@ -24,31 +24,73 @@ function resultado = procesoERA5(ERA5, t1, t2, opciones)
 % Autor: (Tu Nombre) - Corregido por Asistente AI
 
     %% 0) Handle input arguments and default options
-    if nargin < 4, opciones = struct(); end
+    if nargin < 4
+        opciones = struct();
+    end
     % Opciones originales
-    if ~isfield(opciones, 'activos'),           opciones.activos = true(1,4);        end
-    if ~isfield(opciones, 'refinamientoFinal'), opciones.refinamientoFinal = true;   end
-    if ~isfield(opciones, 'horarioValido'),     opciones.horarioValido = [6,20];     end % Horas LST consideradas "diurnas"
-    if ~isfield(opciones, 'validacionCV'),      opciones.validacionCV = true;        end
-    if ~isfield(opciones, 'forzarMarinos'),     opciones.forzarMarinos = true;       end
-    if ~isfield(opciones, 'fraccionFinaIni'),   opciones.fraccionFinaIni = 0.4;      end
-    if ~isfield(opciones, 'fraccionCoarseIni'), opciones.fraccionCoarseIni = 0.6;    end
-    if ~isfield(opciones, 'pesoBandas'),        opciones.pesoBandas = [1,1,1,1,1,1,1];     end
-    if ~isfield(opciones, 'useParfor'),         opciones.useParfor = false;          end
-    if ~isfield(opciones, 'cv_k'),              opciones.cv_k = 5;                   end
-    if ~isfield(opciones, 'integratedMarine'),  opciones.integratedMarine = true;    end
+    if ~isfield(opciones, 'activos')
+        opciones.activos = true(1,4);
+    end
+    if ~isfield(opciones, 'refinamientoFinal')
+        opciones.refinamientoFinal = true;
+    end
+    if ~isfield(opciones, 'horarioValido')
+        opciones.horarioValido = [6,20]; % Horas LST consideradas "diurnas"
+    end
+    if ~isfield(opciones, 'validacionCV')
+        opciones.validacionCV = true;
+    end
+    if ~isfield(opciones, 'forzarMarinos')
+        opciones.forzarMarinos = true;
+    end
+    if ~isfield(opciones, 'fraccionFinaIni')
+        opciones.fraccionFinaIni = 0.4;
+    end
+    if ~isfield(opciones, 'fraccionCoarseIni')
+        opciones.fraccionCoarseIni = 0.6;
+    end
+    if ~isfield(opciones, 'pesoBandas')
+        opciones.pesoBandas = [1,1,1,1,1,1,1];
+    end
+    if ~isfield(opciones, 'useParfor')
+        opciones.useParfor = false;
+    end
+    if ~isfield(opciones, 'cv_k')
+        opciones.cv_k = 5;
+    end
+    if ~isfield(opciones, 'integratedMarine')
+        opciones.integratedMarine = true;
+    end
     % Nuevas opciones y valores por defecto
-    if ~isfield(opciones, 'rh_field_name'),     opciones.rh_field_name = 'RH';       end
-    if ~isfield(opciones, 'default_rh'),        opciones.default_rh = 60.0;          end
-    if ~isfield(opciones, 'w_deriv_refine'),    opciones.w_deriv_refine = 0.1;       end
-    if ~isfield(opciones, 'refineNightData'),   opciones.refineNightData = true;     end
-    if ~isfield(opciones, 'coef_lb'),           opciones.coef_lb = 0.0;              end
-    if ~isfield(opciones, 'coef_ub'),           opciones.coef_ub = 10.0;             end
-    if ~isfield(opciones, 'w_lb'),              opciones.w_lb = 0.2;                 end
-    if ~isfield(opciones, 'w_ub'),              opciones.w_ub = 0.8;                 end
+    if ~isfield(opciones, 'rh_field_name')
+        opciones.rh_field_name = 'RH';
+    end
+    if ~isfield(opciones, 'default_rh')
+        opciones.default_rh = 60.0;
+    end
+    if ~isfield(opciones, 'w_deriv_refine')
+        opciones.w_deriv_refine = 0.1;
+    end
+    if ~isfield(opciones, 'refineNightData')
+        opciones.refineNightData = true;
+    end
+    if ~isfield(opciones, 'coef_lb')
+        opciones.coef_lb = 0.0;
+    end
+    if ~isfield(opciones, 'coef_ub')
+        opciones.coef_ub = 10.0;
+    end
+    if ~isfield(opciones, 'w_lb')
+        opciones.w_lb = 0.2;
+    end
+    if ~isfield(opciones, 'w_ub')
+        opciones.w_ub = 0.8;
+    end
 
     % Validaciones básicas de opciones
-    if isrow(opciones.pesoBandas), opciones.pesoBandas = opciones.pesoBandas'; end
+    if isrow(opciones.pesoBandas)
+        opciones.pesoBandas = opciones.pesoBandas';
+    end
     if numel(opciones.pesoBandas) ~= 7
         warning('pesoBandas debe tener 7 elementos. Usando unos.');
         opciones.pesoBandas = ones(7,1);
