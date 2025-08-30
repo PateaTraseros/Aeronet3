@@ -96,18 +96,23 @@ function resultado = procesoERA5(ERA5, t1, t2, opciones)
             rh_times_hourly = rh_times(isHourly);
             rh_vals_hourly  = rh_full(isHourly);
 
-            % Prealocar
-            rh_data = nan(nRec,1);
-
-            % ── Para cada AOD, promediar RH dentro de ±1 h ────────────────
-            for ii = 1:nRec
-                t = T.time(ii);
-                sel = abs(rh_times_hourly - t) <= hours(1);
-                if any(sel)
-                    rh_data(ii) = mean(rh_vals_hourly(sel), 'omitnan');
-                else
-                    rh_data(ii) = opciones.default_rh;
-                end
+            % ── Interpolación lineal de RH y límite de ±1 h ───────────────
+            valid_idx       = ~isnan(rh_vals_hourly);
+            rh_times_hourly = rh_times_hourly(valid_idx);
+            rh_vals_hourly  = rh_vals_hourly(valid_idx);
+            if isempty(rh_vals_hourly)
+                rh_data = repmat(opciones.default_rh, nRec, 1);
+            else
+                rh_num      = datenum(rh_times_hourly);
+                t_num       = datenum(T.time);
+                rh_interp   = interp1(rh_num, rh_vals_hourly, t_num, 'linear', NaN);
+                nearest_idx = interp1(rh_num, 1:numel(rh_num), t_num, 'nearest', NaN);
+                nearest_idx = round(nearest_idx);
+                time_diff   = inf(nRec,1);
+                valid_near  = ~isnan(nearest_idx);
+                time_diff(valid_near) = abs(t_num(valid_near) - rh_num(nearest_idx(valid_near)))*24; % horas
+                rh_data     = rh_interp;
+                rh_data(time_diff > 1 | isnan(rh_data)) = opciones.default_rh;
             end
 
             % ── Rellenar posibles NaN y asegurar rango [0 100] ────────────
