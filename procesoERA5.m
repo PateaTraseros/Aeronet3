@@ -958,117 +958,20 @@ function [coef_fit_i, tau_input_i, w_opt_i] = ajusteAngstromMie_iter_OptAntiguo_
     end
     target = [peso .* meas_i; w_deriv * deriv_meas]; % Target vector for lsqcurvefit
 
-    % --- Iterative Tau Adjustment ---
-    x_fit = NaN(nParams, 1); % Initialize fit parameters for this record
-    tau_iter = tau_current; % Use a separate variable for iteration
+    % --- Solve Tau via root-finding ---
+    x_fit = NaN(nParams, 1);            % Will hold fit parameters
+    tau_lb = 1e-4; tau_ub = 5.0;        % Bounds for tau
+    opts_tau = optimoptions('lsqnonlin','Display','off','TolX',1e-4,'TolFun',1e-4,'MaxIter',max_iter);
+    tau_diff = @(tau) diffTau(tau);     % Difference function
 
-    for iter = 1:max_iter
-        tau_prev_iter = tau_iter; % Store tau before this iteration's fit
+    [tau_iter, ~, residual, exitflag_tau] = lsqnonlin(tau_diff, tau_current, tau_lb, tau_ub, opts_tau);
 
-        % 1. Build Basis: Use current tau_iter and current RH
-        try
-            [basis, basis500_vals] = buildBasis_OptAntiguo_v3_corrected(tau_iter, rh_i, iterData);
-            if any(isnan(basis),'all') || any(isinf(basis),'all') || any(isnan(basis500_vals),'all') || any(isinf(basis500_vals),'all')
-                 % warning('NaN/Inf in basis for tau=%.4f, rh=%.1f. Aborting fit iter.', tau_iter, rh_i);
-                 tau_iter = NaN; break; % Signal failure for this record
-            end
-        catch ME_basis
-             warning('Error building basis for tau=%.4f, rh=%.1f: %s. Aborting fit.', tau_iter, rh_i, ME_basis.message);
-             tau_iter = NaN; break;
-        end
-
-        % 2. Define Model Function Handle for lsqcurvefit
-         modelFun = @(x, ~) modeloConAngstrom_OptAntiguo_corrected(x, basis, wl, rh_i, w_deriv, peso, iterData);
-
-        % 3. Perform Fit
-        try
-            if iter > 1 && ~any(isnan(x_fit))
-                x0_iter = x_fit; % Use result from previous iteration as guess
-                x0_iter = max(lb, min(ub, x0_iter)); % Ensure guess is within bounds
-                 if is_integrated_case && (x0_iter(end) < lb(end) || x0_iter(end) > ub(end))
-                     x0_iter(end) = 0.5; % Reset w guess if needed
-                 end
-            else
-                x0_iter = x0; % Use original initial guess for first iteration
-            end
-
-            [x_fit_iter, ~, ~, exitflag, ~] = lsqcurvefit(modelFun, x0_iter, [], target, lb, ub, opts_lsq);
-
-            if exitflag <= 0
-                % If fit fails, keep previous iteration's x_fit (if exists) and break
-                if iter > 1
-                    tau_iter = tau_prev_iter; % Revert tau
-                else
-                    tau_iter = NaN; % Failed on first try
-                    x_fit = NaN(nParams, 1); % Ensure x_fit is NaN too
-                end
-                break; % Exit iteration loop
-            else
-                x_fit = x_fit_iter; % Store successful fit parameters
-            end
-        catch ME_lsq
-            warning('Error during lsqcurvefit for tau=%.4f: %s. Aborting fit.', tau_iter, ME_lsq.message);
-            tau_iter = NaN; x_fit = NaN(nParams, 1); break; % Signal failure
-        end
-
-        % 4. Update Tau: Recalculate AOD500 based on the new fit 'x_fit'
-
-        if is_integrated_case
-             current_w = x_fit(end); % Get optimized w from this iteration
-             x_use = x_fit(1:end-1); % Coefficients
-
-             % --- *** CRITICAL CHECK: Access from iterData *** ---
-             if ~isfield(iterData, 'marineOriginalFine') || ~isfield(iterData, 'marineOriginalCoarse')
-                 error('DEBUG CHECK FAILED: iterData is missing marineOriginalFine/Coarse fields!');
-             end
-             fine_orig = iterData.marineOriginalFine;
-             coarse_orig = iterData.marineOriginalCoarse;
-             % --- *** End CRITICAL CHECK *** ---
-
-             if isempty(fine_orig) || isempty(coarse_orig)
-                  warning('UpdateTau InitialFit: Missing original marine data values in iterData. Aborting fit iter.');
-                  tau_iter = NaN; break;
-             end
-
-             % Safely interpolate, handle potential errors
-             try
-                fine500_orig = interp1(iterData.wl, fine_orig, 0.5, 'linear', 'extrap');
-                coarse500_orig = interp1(iterData.wl, coarse_orig, 0.5, 'linear', 'extrap');
-             catch ME_interp500
-                 warning( ME_interp500.identifier, ...
-         'UpdateTau InitialFit: Interpolation error for marine 500 nm: %s. Aborting fit iter.', ...
-         ME_interp500.message );
-
-                 
-
-
-                 tau_iter = NaN; break;
-             end
-
-             fine500_rh = fine500_orig * calculate_fRH(rh_i, 'fine');
-             coarse500_rh = coarse500_orig * calculate_fRH(rh_i, 'coarse');
-             % Update the 500nm value for the combined source in basis500_vals
-             basis500_vals(iterData.marineIndex) = current_w * fine500_rh + (1-current_w) * coarse500_rh;
-        else
-            x_use = x_fit; % All parameters are coefficients
-        end
-
-        % Calculate new AOD500 estimate using the potentially updated basis500_vals
-        AOD500_new = sum(basis500_vals .* x_use', 'omitnan'); % Dot product
-        AOD500_new = max(1e-4, min(AOD500_new, 5.0)); % Bound the result
-
-        if isnan(AOD500_new) || isinf(AOD500_new)
-            % warning('NaN/Inf encountered when updating tau. Aborting fit iter.');
-            tau_iter = NaN; break; % Signal failure
-        end
-
-        % 5. Check Convergence
-        if abs(AOD500_new - tau_iter)/max(tau_iter, 1e-9) < tol
-            tau_iter = AOD500_new; break; % Converged
-        else
-            tau_iter = AOD500_new; % Not converged, update tau_iter and continue
-        end
-   end % End of iteration loop
+    if exitflag_tau <= 0 || isnan(tau_iter) || any(isnan(residual))
+        tau_iter = NaN;
+        x_fit = NaN(nParams, 1);
+    else
+        tau_diff(tau_iter); % Ensure x_fit corresponds to final tau
+    end
 
     % --- Assign Final Results for this time step ---
     tau_input_i = tau_iter; % Assign the final tau_iter (could be NaN if failed)
@@ -1086,6 +989,64 @@ function [coef_fit_i, tau_input_i, w_opt_i] = ajusteAngstromMie_iter_OptAntiguo_
         coef_fit_i = NaN(1, nFuentes);
         tau_input_i = NaN;
         w_opt_i = NaN;
+    end
+    function diff = diffTau(tau)
+        % Build basis for current tau
+        try
+            [basis, basis500_vals] = buildBasis_OptAntiguo_v3_corrected(tau, rh_i, iterData);
+            if any(isnan(basis),'all') || any(isinf(basis),'all') || any(isnan(basis500_vals),'all') || any(isinf(basis500_vals),'all')
+                diff = NaN; return;
+            end
+        catch ME_basis
+            warning('Error building basis for tau=%.4f, rh=%.1f: %s. Aborting fit.', tau, rh_i, ME_basis.message);
+            diff = NaN; return;
+        end
+
+        modelFun = @(x, ~) modeloConAngstrom_OptAntiguo_corrected(x, basis, wl, rh_i, w_deriv, peso, iterData);
+        try
+            [x_temp, ~, ~, exitflag, ~] = lsqcurvefit(modelFun, x0, [], target, lb, ub, opts_lsq);
+            if exitflag <= 0 || any(isnan(x_temp))
+                diff = NaN; return;
+            end
+        catch ME_lsq
+            warning('Error during lsqcurvefit for tau=%.4f: %s. Aborting fit.', tau, ME_lsq.message);
+            diff = NaN; return;
+        end
+
+        if is_integrated_case
+            current_w = x_temp(end);
+            x_use = x_temp(1:end-1);
+            if ~isfield(iterData,'marineOriginalFine') || ~isfield(iterData,'marineOriginalCoarse')
+                diff = NaN; return;
+            end
+            fine_orig = iterData.marineOriginalFine;
+            coarse_orig = iterData.marineOriginalCoarse;
+            if isempty(fine_orig) || isempty(coarse_orig)
+                diff = NaN; return;
+            end
+            try
+                fine500_orig = interp1(iterData.wl, fine_orig, 0.5, 'linear','extrap');
+                coarse500_orig = interp1(iterData.wl, coarse_orig, 0.5, 'linear','extrap');
+            catch ME_interp500
+                warning(ME_interp500.identifier, ...
+                    'UpdateTau InitialFit: Interpolation error for marine 500 nm: %s. Aborting fit.', ...
+                    ME_interp500.message);
+                diff = NaN; return;
+            end
+            fine500_rh = fine500_orig * calculate_fRH(rh_i,'fine');
+            coarse500_rh = coarse500_orig * calculate_fRH(rh_i,'coarse');
+            basis500_vals(iterData.marineIndex) = current_w * fine500_rh + (1-current_w) * coarse500_rh;
+        else
+            x_use = x_temp;
+        end
+
+        AOD500_new = sum(basis500_vals .* x_use', 'omitnan');
+        if isnan(AOD500_new) || isinf(AOD500_new)
+            diff = NaN; return;
+        end
+
+        diff = AOD500_new - tau;
+        x_fit = x_temp; % store parameters
     end
 end
 
